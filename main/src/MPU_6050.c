@@ -6,9 +6,9 @@ static i2c_master_dev_handle_t dev_handle;
 
 esp_err_t mpu6050_init(void) {
     esp_err_t ret;
-    
+
     ESP_LOGI(TAG, "Initializing I2C");
-    
+
     i2c_master_bus_config_t i2c_bus_config = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .i2c_port = I2C_NUM_0,
@@ -98,13 +98,13 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
     int16_t temp = (raw_data[6] << 8) | raw_data[7];
 
     // Convert to physical units
-    data->accel_x = accel_x / 16384.0f;
-    data->accel_y = accel_y / 16384.0f;
-    data->accel_z = accel_z / 16384.0f;
+    data->accel_x = accel_x / MPU6050_ACCEL_ADC_CONVERSION;
+    data->accel_y = accel_y / MPU6050_ACCEL_ADC_CONVERSION;
+    data->accel_z = accel_z / MPU6050_ACCEL_ADC_CONVERSION;
 
-    data->gyro_x = gyro_x / 131.0f;
-    data->gyro_y = gyro_y / 131.0f;
-    data->gyro_z = gyro_z / 131.0f;
+    data->gyro_x = gyro_x / MPU6050_GYRO_ADC_CONVERSION;
+    data->gyro_y = gyro_y / MPU6050_GYRO_ADC_CONVERSION;
+    data->gyro_z = gyro_z / MPU6050_GYRO_ADC_CONVERSION;
 
     data->temperature = temp/340 + 36.53;
 
@@ -120,10 +120,49 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
         data->angle_z += data->gyro_z * dt;
 
         // Keep angles between 0 and 360 graus
-        data->angle_x = fmod(data->angle_x + 360.0f, 360.0f);
-        data->angle_y = fmod(data->angle_y + 360.0f, 360.0f);
-        data->angle_z = fmod(data->angle_z + 360.0f, 360.0f);
+        data->angle_x = fmod(data->angle_x + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
+        data->angle_y = fmod(data->angle_y + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
+        data->angle_z = fmod(data->angle_z + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
     }
 
     return ESP_OK;
+}
+
+void mpu6050_run(void *pvParameters) {
+    esp_err_t init_ret = mpu6050_init();
+    if (init_ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize MPU6050");
+        return;
+    }
+
+    esp_err_t read_ret;
+    mpu6050_data_t sensor_data = {0};
+
+    while(1) {
+        read_ret = mpu6050_read_data(&sensor_data);
+        if (read_ret == ESP_OK) {
+            printf("Acelerômetro (g):\n");
+            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
+                   sensor_data.accel_x, sensor_data.accel_y, sensor_data.accel_z);
+
+            printf("\nTemperatura (graus):\n");
+            printf("T: %.2f\n", 
+                   sensor_data.temperature);
+            
+            printf("\nGiroscópio (graus/s):\n");
+            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
+                   sensor_data.gyro_x, sensor_data.gyro_y, sensor_data.gyro_z);
+            
+            printf("\nPosição Angular (graus):\n");
+            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
+                   sensor_data.angle_x, sensor_data.angle_y, sensor_data.angle_z);
+        } else {
+            ESP_LOGE(TAG, "Error reading sensor data");
+        }
+
+        UBaseType_t highWaterMark = uxTaskGetStackHighWaterMark(NULL);
+        printf("Stack High Water Mark: %d\n", highWaterMark);
+
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
