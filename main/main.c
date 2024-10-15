@@ -4,7 +4,7 @@
 #include "esp_log.h"
 #include "include/MPU_6050.h"
 
-static const char *TAG = "MAIN";
+static const char *TAG = "MAIN_RUN";
 
 void app_main(void) {
     // Initialize MPU6050
