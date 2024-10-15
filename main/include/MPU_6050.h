@@ -20,9 +20,9 @@
 #define MPU6050_ACCEL_XOUT_H  0x3B
 #define MPU6050_GYRO_XOUT_H   0x43
 
+// Conversion units
 #define MPU6050_ACCEL_ADC_CONVERSION     16384.0f
 #define MPU6050_GYRO_ADC_CONVERSION      131.0f
-#define MPU6050_GYRO_CONVERSION_DEGREES  360.0f
 
 typedef struct {
     float accel_x;
@@ -35,6 +35,8 @@ typedef struct {
     float angle_y;
     float angle_z;
     float temperature;
+    float kalman_angle_x;
+    float kalman_angle_y;
 } mpu6050_data_t;
 
 esp_err_t mpu6050_init(void);

@@ -1,13 +1,77 @@
 #include "../include/MPU_6050.h"
 #include <math.h>
 
-static const char *TAG = "MPU_6050";
+static const char *MPU_TAG = "MPU_6050";
 static i2c_master_dev_handle_t dev_handle;
+
+typedef struct {
+    float Q_angle;   // Process noise variance for the accelerometer
+    float Q_bias;    // Process noise variance for the gyro bias
+    float R_measure; // Measurement noise variance - this is actually the variance of the measurement noise
+
+    float angle;     // The angle calculated by the Kalman filter - part of the 2x1 state vector
+    float bias;      // The gyro bias calculated by the Kalman filter - part of the 2x1 state vector
+    float rate;      // Unbiased rate calculated from the rate and the calculated bias
+
+    float P[2][2];   // Error covariance matrix - This is a 2x2 matrix
+} Kalman_t;
+
+static Kalman_t kalman_x, kalman_y;
+
+// Kalman filter initialization
+void kalman_init(Kalman_t *kalman) {
+    kalman->Q_angle = 0.001f;
+    kalman->Q_bias = 0.003f;
+    kalman->R_measure = 0.03f;
+
+    kalman->angle = 0.0f;
+    kalman->bias = 0.0f;
+
+    kalman->P[0][0] = 0.0f;
+    kalman->P[0][1] = 0.0f;
+    kalman->P[1][0] = 0.0f;
+    kalman->P[1][1] = 0.0f;
+}
+
+// Kalman filter update
+float kalman_update(Kalman_t *kalman, float newAngle, float newRate, float dt) {
+    // Step 1: Predict
+    kalman->rate = newRate - kalman->bias;
+    kalman->angle += dt * kalman->rate;
+
+    // Update estimation error covariance - Project the error covariance ahead
+    kalman->P[0][0] += dt * (dt*kalman->P[1][1] - kalman->P[0][1] - kalman->P[1][0] + kalman->Q_angle);
+    kalman->P[0][1] -= dt * kalman->P[1][1];
+    kalman->P[1][0] -= dt * kalman->P[1][1];
+    kalman->P[1][1] += kalman->Q_bias * dt;
+
+    // Step 2: Update
+    float y = newAngle - kalman->angle;
+    float S = kalman->P[0][0] + kalman->R_measure;
+    float K[2];
+    K[0] = kalman->P[0][0] / S;
+    K[1] = kalman->P[1][0] / S;
+
+    // Update state
+    kalman->angle += K[0] * y;
+    kalman->bias += K[1] * y;
+
+    // Update estimation error covariance
+    float P00_temp = kalman->P[0][0];
+    float P01_temp = kalman->P[0][1];
+
+    kalman->P[0][0] -= K[0] * P00_temp;
+    kalman->P[0][1] -= K[0] * P01_temp;
+    kalman->P[1][0] -= K[1] * P00_temp;
+    kalman->P[1][1] -= K[1] * P01_temp;
+
+    return kalman->angle;
+}
 
 esp_err_t mpu6050_init(void) {
     esp_err_t ret;
 
-    ESP_LOGI(TAG, "Initializing I2C");
+    ESP_LOGI(MPU_TAG, "Initializing I2C");
 
     i2c_master_bus_config_t i2c_bus_config = {
         .clk_source = I2C_CLK_SRC_DEFAULT,
@@ -21,17 +85,17 @@ esp_err_t mpu6050_init(void) {
     i2c_master_bus_handle_t bus_handle;
     ret = i2c_new_master_bus(&i2c_bus_config, &bus_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to create I2C bus");
+        ESP_LOGE(MPU_TAG, "Failed to create I2C bus");
         return ret;
     }
 
-    ESP_LOGI(TAG, "Probing for MPU6050");
+    ESP_LOGI(MPU_TAG, "Probing for MPU6050");
     ret = i2c_master_probe(bus_handle, MPU6050_ADDR, -1);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "MPU6050 not found!");
+        ESP_LOGE(MPU_TAG, "MPU6050 not found!");
         return ret;
     }
-    ESP_LOGI(TAG, "MPU6050 found!");
+    ESP_LOGI(MPU_TAG, "MPU6050 found!");
 
     i2c_device_config_t dev_cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -41,7 +105,7 @@ esp_err_t mpu6050_init(void) {
 
     ret = i2c_master_bus_add_device(bus_handle, &dev_cfg, &dev_handle);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add device to bus");
+        ESP_LOGE(MPU_TAG, "Failed to add device to bus");
         return ret;
     }
 
@@ -49,9 +113,12 @@ esp_err_t mpu6050_init(void) {
     uint8_t cmd[] = {MPU6050_PWR_MGMT_1, 0x00};
     ret = i2c_master_transmit(dev_handle, cmd, sizeof(cmd), -1);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to wake up MPU6050");
+        ESP_LOGE(MPU_TAG, "Failed to wake up MPU6050");
         return ret;
     }
+
+    kalman_init(&kalman_x);
+    kalman_init(&kalman_y);
 
     return ESP_OK;
 }
@@ -62,14 +129,14 @@ static esp_err_t read_sensor_register(uint8_t reg_addr, uint8_t* data, size_t le
     // Write register address
     ret = i2c_master_transmit(dev_handle, &reg_addr, 1, -1);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Error writing register address");
+        ESP_LOGE(MPU_TAG, "Error writing register address");
         return ret;
     }
     
     // Read data
     ret = i2c_master_receive(dev_handle, data, len, -1);
     if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "Error reading sensor data");
+        ESP_LOGE(MPU_TAG, "Error reading sensor data");
     }
     
     return ret;
@@ -108,21 +175,19 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
 
     data->temperature = temp/340 + 36.53;
 
-    // Update absolute angles (simplified - not accounting for drift)
+    // Calculate pitch and roll from accelerometer data
+    float accel_angle_x = atan2f(data->accel_y, data->accel_z) * 180 / M_PI;
+    float accel_angle_y = atan2f(-data->accel_x, sqrtf(data->accel_y * data->accel_y + data->accel_z * data->accel_z)) * 180 / M_PI;
+
+    // Update Kalman filter
     static float last_read_time = 0;
     float current_time = (float)esp_timer_get_time() / 1000000.0f;
     float dt = current_time - last_read_time;
     last_read_time = current_time;
 
     if (dt > 0.0f) {
-        data->angle_x += data->gyro_x * dt;
-        data->angle_y += data->gyro_y * dt;
-        data->angle_z += data->gyro_z * dt;
-
-        // Keep angles between 0 and 360 graus
-        data->angle_x = fmod(data->angle_x + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
-        data->angle_y = fmod(data->angle_y + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
-        data->angle_z = fmod(data->angle_z + MPU6050_GYRO_CONVERSION_DEGREES, MPU6050_GYRO_CONVERSION_DEGREES);
+        data->kalman_angle_x = kalman_update(&kalman_x, accel_angle_x, data->gyro_x, dt);
+        data->kalman_angle_y = kalman_update(&kalman_y, accel_angle_y, data->gyro_y, dt);
     }
 
     return ESP_OK;
@@ -131,7 +196,7 @@ esp_err_t mpu6050_read_data(mpu6050_data_t *data) {
 void mpu6050_run(void *pvParameters) {
     esp_err_t init_ret = mpu6050_init();
     if (init_ret != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize MPU6050");
+        ESP_LOGE(MPU_TAG, "Failed to initialize MPU6050");
         return;
     }
 
@@ -153,16 +218,16 @@ void mpu6050_run(void *pvParameters) {
             printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
                    sensor_data.gyro_x, sensor_data.gyro_y, sensor_data.gyro_z);
             
-            printf("\nPosição Angular (graus):\n");
-            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
-                   sensor_data.angle_x, sensor_data.angle_y, sensor_data.angle_z);
+            printf("\nPosição Angular Kalman (graus):\n");
+            printf("X: %.2f, Y: %.2f\n", 
+                   sensor_data.kalman_angle_x, sensor_data.kalman_angle_y);
         } else {
-            ESP_LOGE(TAG, "Error reading sensor data");
+            ESP_LOGE(MPU_TAG, "Error reading sensor data");
         }
 
         UBaseType_t highWaterMark = uxTaskGetStackHighWaterMark(NULL);
         printf("Stack High Water Mark: %d\n", highWaterMark);
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100)); // Updated to 100ms (10 Hz)
     }
 }
