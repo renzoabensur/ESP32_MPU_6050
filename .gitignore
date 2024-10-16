@@ -42,3 +42,24 @@ bootloader/bootloader.bin
 # Ignore python virtual environment if used
 /.venv/
 /env/
+
+# Ignore Python bytecode files
+__pycache__/
+*.py[cod]
+
+# Ignore virtual environment
+venv/
+ENV/
+env/
+*.env
+
+# Ignore Python development tool configuration
+.mypy_cache/
+.pytest_cache/
+.tox/
+coverage.xml
+*.cover
+*.pyc
+*.pyo
+*.pyd
+test_output/

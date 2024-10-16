@@ -206,28 +206,25 @@ void mpu6050_run(void *pvParameters) {
     while(1) {
         read_ret = mpu6050_read_data(&sensor_data);
         if (read_ret == ESP_OK) {
-            printf("Acelerômetro (g):\n");
-            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
+            printf("--start frame--\n");
+            printf("Accel_X (g): %.2f, Accel_Y (g): %.2f, Accel_Z (g): %.2f\n", 
                    sensor_data.accel_x, sensor_data.accel_y, sensor_data.accel_z);
 
-            printf("\nTemperatura (graus):\n");
-            printf("T: %.2f\n", 
-                   sensor_data.temperature);
+            printf("Temperature: %.2f\n", sensor_data.temperature);
             
-            printf("\nGiroscópio (graus/s):\n");
-            printf("X: %.2f, Y: %.2f, Z: %.2f\n", 
+            printf("Gyro_X (graus/s): %.2f, Gyro_Y (graus/s): %.2f, Gyro_Z (graus/s): %.2f\n", 
                    sensor_data.gyro_x, sensor_data.gyro_y, sensor_data.gyro_z);
             
-            printf("\nPosição Angular Kalman (graus):\n");
-            printf("X: %.2f, Y: %.2f\n", 
+            printf("Angle_X (graus): %.2f, Angle_Y (graus): %.2f\n", 
                    sensor_data.kalman_angle_x, sensor_data.kalman_angle_y);
+            printf("--end frame--\n");
         } else {
             ESP_LOGE(MPU_TAG, "Error reading sensor data");
         }
 
-        UBaseType_t highWaterMark = uxTaskGetStackHighWaterMark(NULL);
-        printf("Stack High Water Mark: %d\n", highWaterMark);
+        // UBaseType_t highWaterMark = uxTaskGetStackHighWaterMark(NULL);
+        // printf("Stack High Water Mark: %d\n", highWaterMark);
 
-        vTaskDelay(pdMS_TO_TICKS(100)); // Updated to 100ms (10 Hz)
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
