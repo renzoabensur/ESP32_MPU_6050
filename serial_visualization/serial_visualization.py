@@ -5,7 +5,7 @@ import re
 import time
 
 # Configure the serial connection (update the port as needed)
-ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=0.1)
 
 # Initialize data lists
 time_data = []
@@ -29,20 +29,19 @@ lines_angle = ax3.plot([], [], 'r-', [], [], 'g-')
 ax1.set_ylabel('Acceleration (g)')
 ax2.set_ylabel('Gyro (degrees/s)')
 ax3.set_ylabel('Angle (degrees)')
-ax3.set_xlabel('Time')
+ax3.set_xlabel('Time (seconds)')
 
-for ax in (ax1, ax2, ax3):
-    ax.set_xlim(0, 100)
-    ax.grid(True)
-
+# Set up the y-axis limits
 ax1.set_ylim(-2, 2)
 ax2.set_ylim(-250, 250)
-ax3.set_ylim(-90, 90)
+ax3.set_ylim(-100, 100)
 
 # Add legends
 ax1.legend(('X', 'Y', 'Z'))
 ax2.legend(('X', 'Y', 'Z'))
 ax3.legend(('X', 'Y'))
+
+time_window = 20  # Show the last 20 seconds of data
 
 def parse_serial_data(frame_data):
     """Parse a block of serial data and extract sensor values."""
@@ -96,7 +95,7 @@ def update_plot(frame):
                 angle_y.append(values['angle'][1])
             
             # Limit data to the last 100 points
-            if len(time_data) > 100:
+            if len(time_data) > 180:
                 time_data.pop(0)
                 accel_x.pop(0); accel_y.pop(0); accel_z.pop(0)
                 gyro_x.pop(0); gyro_y.pop(0); gyro_z.pop(0)
@@ -112,11 +111,14 @@ def update_plot(frame):
             for i, line in enumerate(lines_angle):
                 line.set_data(time_data, [angle_x, angle_y][i])
             
-            # Dynamically update the x-axis to show the last 100 seconds of data
-            current_time = time_data[-1]
-            ax1.set_xlim(0, 20)
-            ax2.set_xlim(0, 20)
-            ax3.set_xlim(0, 20)
+            if time_data[-1] > time_window:
+                ax1.set_xlim(time_data[-1] - time_window, time_data[-1])
+                ax2.set_xlim(time_data[-1] - time_window, time_data[-1])
+                ax3.set_xlim(time_data[-1] - time_window, time_data[-1])
+            else:
+                ax1.set_xlim(0, time_window)
+                ax2.set_xlim(0, time_window)
+                ax3.set_xlim(0, time_window)
     
             for ax in (ax1, ax2, ax3):
                 ax.relim()
@@ -129,7 +131,7 @@ def update_plot(frame):
     return lines_accel + lines_gyro + lines_angle
 
 # Create the animation
-anim = FuncAnimation(fig, update_plot, frames=None, interval=100, blit=True,cache_frame_data=False)
+anim = FuncAnimation(fig, update_plot, frames=None, interval=100, blit=True, cache_frame_data=False)
 
 plt.tight_layout()
 plt.show()
